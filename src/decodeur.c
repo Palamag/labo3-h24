@@ -3,10 +3,9 @@
  * GIF-3004 Systèmes embarqués temps réel
  * Hiver 2024
  * Marc-André Gardner
- * 
+ *
  * Fichier implémentant le programme de décodage des fichiers ULV
  ******************************************************************************/
-
 
 // Gestion des ressources et permissions
 #include <sys/resource.h>
@@ -20,44 +19,85 @@
 #include "utils.h"
 
 #include "jpgd.h"
+#include "getopt.h"
 
 // Définition de diverses structures pouvant vous être utiles pour la lecture d'un fichier ULV
 #define HEADER_SIZE 4
 const char header[] = "SETR";
 
-struct videoInfos{
-        uint32_t largeur;
-        uint32_t hauteur;
-        uint32_t canaux;
-        uint32_t fps;
+struct videoInfos
+{
+    uint32_t largeur;
+    uint32_t hauteur;
+    uint32_t canaux;
+    uint32_t fps;
 };
 
 /******************************************************************************
-* FORMAT DU FICHIER VIDEO
-* Offset     Taille     Type      Description
-* 0          4          char      Header (toujours "SETR" en ASCII)
-* 4          4          uint32    Largeur des images du vidéo
-* 8          4          uint32    Hauteur des images du vidéo
-* 12         4          uint32    Nombre de canaux dans les images
-* 16         4          uint32    Nombre d'images par seconde (FPS)
-* 20         4          uint32    Taille (en octets) de la première image -> N
-* 24         N          char      Contenu de la première image (row-first)
-* 24+N       4          uint32    Taille (en octets) de la seconde image -> N2
-* 24+N+4     N2         char      Contenu de la seconde image
-* 24+N+N2    4          uint32    Taille (en octets) de la troisième image -> N2
-* ...                             Toutes les images composant la vidéo, à la suite
-*            4          uint32    0 (indique la fin du fichier)
-******************************************************************************/
+ * FORMAT DU FICHIER VIDEO
+ * Offset     Taille     Type      Description
+ * 0          4          char      Header (toujours "SETR" en ASCII)
+ * 4          4          uint32    Largeur des images du vidéo
+ * 8          4          uint32    Hauteur des images du vidéo
+ * 12         4          uint32    Nombre de canaux dans les images
+ * 16         4          uint32    Nombre d'images par seconde (FPS)
+ * 20         4          uint32    Taille (en octets) de la première image -> N
+ * 24         N          char      Contenu de la première image (row-first)
+ * 24+N       4          uint32    Taille (en octets) de la seconde image -> N2
+ * 24+N+4     N2         char      Contenu de la seconde image
+ * 24+N+N2    4          uint32    Taille (en octets) de la troisième image -> N2
+ * ...                             Toutes les images composant la vidéo, à la suite
+ *            4          uint32    0 (indique la fin du fichier)
+ ******************************************************************************/
 
-
-int main(int argc, char* argv[]){
+int main(int argc, char *argv[])
+{
     // On desactive le buffering pour les printf(), pour qu'il soit possible de les voir depuis votre ordinateur
-	setbuf(stdout, NULL);
-    
+    setbuf(stdout, NULL);
+
     // Écrivez le code de décodage et d'envoi sur la zone mémoire partagée ici!
     // N'oubliez pas que vous pouvez utiliser jpgd::decompress_jpeg_image_from_memory()
     // pour décoder une image JPEG contenue dans un buffer!
     // N'oubliez pas également que ce décodeur doit lire les fichiers ULV EN BOUCLE
 
+    int c;
+    char *inputVideoFile = (char *)malloc(sizeof(char));
+    char *sharedMemLocationFolder = (char *)malloc(sizeof(char));
+    size_t inputStrLen;
+    size_t sharedFolderLen;
+
+    // identify file to read and shared memory folder
+    opterr = 0;
+    while ((c = getopt(argc, argv, "")) != -1)
+    {
+        switch (c)
+        {
+        default:
+            continue;
+        }
+    }
+
+    if (argc - optind < 2)
+    {
+        printf("Arguments manquants (fichier_entree flux_sortie)\n");
+        return -1;
+    }
+
+    inputStrLen = strlen(argv[optind]);
+    inputVideoFile = (char*)realloc(inputVideoFile, inputStrLen);
+    strcpy(inputVideoFile, argv[optind]);
+
+    FILE *filePointer;
+    filePointer = fopen(inputVideoFile, "r");
+    char fileDescriptor[24];
+    //Get the first 24 bytes used to describe the file
+    fgets(fileDescriptor, 24, filePointer);
+    char fileHeader[4];
+    strncpy(fileHeader, fileDescriptor, 4);
+
+    printf("%s", fileHeader);
+
+    free(inputVideoFile);
+    free(sharedMemLocationFolder);
     return 0;
 }
