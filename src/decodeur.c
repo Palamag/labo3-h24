@@ -81,32 +81,16 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int filePointer;
-    struct stat statbuf;
-    char *videoFile;
-    if ((filePointer = open(argv[optind], O_RDONLY)) < 0)
-    {
-        printf("Open function failed\n");
-        return -1;
-    }
+    int videoFileDescriptor = open(argv[optind], O_RDONLY);
+    struct stat videoFileStats;
+    fstat(videoFileDescriptor, &videoFileStats);
 
-    if (fstat(filePointer, &statbuf) < 0)
-    {
-        printf("fstat function failed\n");
-        return -1;
-    }
+    char* videoFilePointer = (char*) mmap(NULL, videoFileStats.st_size, PROT_READ, MAP_PRIVATE, videoFileDescriptor, 0);//Crash avec MAP_POPULATE, mais fonctionne avec MAP_PRIVATE
 
-    if ((videoFile = (char *)mmap(0, statbuf.st_size, PROT_READ, MAP_SHARED, filePointer, 0)) == (void *)-1)
-    {
-        printf("mmap function failed\n");
-        return -1;
-    }
 
-    // First 4 bytes is fileHeader
     char fileHeader[4];
-    memcpy(&fileHeader[0], &videoFile[0], sizeof(char) * 4);
-
-    if (strncmp(fileHeader, header, sizeof(char) * 4) != 0)
+    memcpy(fileHeader, videoFilePointer, sizeof(char) * 4);
+    if (strncmp(fileHeader, header, sizeof(char)*4) != 0)
     {
         // Invalid file input
         printf("En-tete du fichier d'entree invalide\n");
@@ -116,23 +100,28 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    //Obtient hauteur, largeur, nb de canaux et images par seconde
     struct videoInfos videoInfo;
-    memcpy(&videoInfo, &videoFile[4], sizeof(uint32_t) * 4);
+    memcpy(&videoInfo, &videoFilePointer[4], sizeof(struct videoInfos));
+
+    //obtient taille des images
+    uint32_t numberOfBytesInFrame;
+    memcpy(&numberOfBytesInFrame, &videoFilePointer[20], sizeof(uint32_t));
 
     // essaie decodage image
-    uint32_t numberOfBytesInFrame;
-    memcpy(&numberOfBytesInFrame, &videoFile[20], sizeof(uint32_t));
-    int numberOfChars = numberOfBytesInFrame / sizeof(char);
-
     int actualComp;
     int actualWidth;
     int actualHeight;
-    unsigned char *frame = (unsigned char *)malloc(numberOfBytesInFrame);
-    memcpy(frame, (char *)&videoFile[24], numberOfBytesInFrame);
+
+    char* frame = (char *) malloc(numberOfBytesInFrame);
+    memcpy(frame, &videoFilePointer[24], numberOfBytesInFrame);
+
     unsigned char *jpegImage = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)frame, numberOfBytesInFrame, &actualWidth, &actualHeight, &actualComp, 3, 0);
 
     const char *nomImage = {"Test_Image.ppm"};
-    enregistreImage((const unsigned char *)jpegImage, videoInfo.hauteur, videoInfo.largeur, videoInfo.canaux, nomImage);
+    enregistreImage((const unsigned char *)jpegImage, actualHeight, actualWidth, actualComp, nomImage);
+
+    free(frame);
 
     /*struct stat st = {0};
     if(stat(argv[optind+1], &st) == -1)

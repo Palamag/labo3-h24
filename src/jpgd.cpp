@@ -59,8 +59,8 @@
 namespace jpgd {
 
 
-  static inline void *jpgd_malloc(size_t nSize) { return tempsreel_malloc(nSize); }
-  static inline void jpgd_free(void *p) { tempsreel_free(p); }
+  static inline void *jpgd_malloc(size_t nSize) { return malloc(nSize); }//TODO: REUSE CUSTOM REAL TIME MALLOC WHEN IT'S DONE
+  static inline void jpgd_free(void *p) { free(p); }//TODO: REUSE CUSTOM REAL TIME FREE WHEN IT'S DONE
 	
 
 	// DCT coefficients are stored in this sequence.
