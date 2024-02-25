@@ -54,7 +54,8 @@ int prepareMemoire(size_t tailleImageEntree, size_t tailleImageSortie)
 
 void *tempsreel_malloc(size_t taille)
 {
-    uint32_t memPointer = 0;
+    return malloc(taille);
+   /* uint32_t memPointer = 0;
     if (taille == memPool.inputImageSize)
     {
         for (int i = 0; i < 5; i++)
@@ -91,12 +92,12 @@ void *tempsreel_malloc(size_t taille)
         errno = ENOMEM;
         return NULL;
     }
-    return (void *)memPointer;
+    return (void *)memPointer;*/
 }
 
 void tempsreel_free(void *ptr)
 {
-    for (int i = 0; i < 5; i++)
+    free(ptr);    /*for (int i = 0; i < 5; i++)
     {
         if (ptr == (void *)memPool.inputMemBlockPointers[i])
         {
@@ -108,5 +109,5 @@ void tempsreel_free(void *ptr)
             memPool.outputBlockUsageArray[i] = 0;
             break;
         }
-    }
+    }*/
 }

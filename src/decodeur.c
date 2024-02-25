@@ -68,10 +68,64 @@ int main(int argc, char *argv[])
     // identify file to read and shared memory folder
     int c;
     opterr = 0;
-    while ((c = getopt(argc, argv, "")) != -1)
+    char *entree, *sortie;
+    int modeOrdonnanceur = ORDONNANCEMENT_NORT;
+    unsigned int runtime, deadline, period;
+    int deadlineParamIndex = 0;
+    char* splitString;
+    while ((c = getopt(argc, argv, "s:d:")) != -1)
     {
         switch (c)
         {
+        case 's':
+            // On selectionne le mode d'ordonnancement
+            if (strcmp(optarg, "NORT") == 0)
+            {
+                modeOrdonnanceur = ORDONNANCEMENT_NORT;
+            }
+            else if (strcmp(optarg, "RR") == 0)
+            {
+                modeOrdonnanceur = ORDONNANCEMENT_RR;
+            }
+            else if (strcmp(optarg, "FIFO") == 0)
+            {
+                modeOrdonnanceur = ORDONNANCEMENT_FIFO;
+            }
+            else if (strcmp(optarg, "DEADLINE") == 0)
+            {
+                modeOrdonnanceur = ORDONNANCEMENT_DEADLINE;
+            }
+            else
+            {
+                modeOrdonnanceur = ORDONNANCEMENT_NORT;
+                printf("Mode d'ordonnancement %s non valide, defaut sur NORT\n", optarg);
+            }
+            break;
+        case 'd':
+            // Dans le cas DEADLINE, on peut recevoir des parametres
+            // Si un autre mode d'ordonnacement est selectionne, ces
+            // parametres peuvent simplement etre ignores
+            splitString = strtok(optarg, ",");
+            while (splitString != NULL)
+            {
+                if (deadlineParamIndex == 0)
+                {
+                    // Runtime
+                    runtime = atoi(splitString);
+                }
+                else if (deadlineParamIndex == 1)
+                {
+                    deadline = atoi(splitString);
+                }
+                else
+                {
+                    period = atoi(splitString);
+                    break;
+                }
+                deadlineParamIndex++;
+                splitString = strtok(NULL, ",");
+            }
+            break;
         default:
             continue;
         }
@@ -83,7 +137,11 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int videoFileDescriptor = open(argv[optind], O_RDONLY);
+    entree = argv[optind];
+    sortie = argv[optind + 1];
+    printf("Initialisation decodeur, entree=%s, sortie=%s, mode d'ordonnancement=%i\n", entree, sortie, modeOrdonnanceur);
+
+    int videoFileDescriptor = open(entree, O_RDONLY);
     struct stat videoFileStats;
     fstat(videoFileDescriptor, &videoFileStats);
 
@@ -115,7 +173,7 @@ int main(int argc, char *argv[])
         memcpy(&numberOfBytesInCurrentFrame, &videoFilePointer[numberOfBytesRead + (numberOfFramesInVideo * 4) + 20], sizeof(uint32_t));
         if (numberOfBytesInCurrentFrame == 0)
         {
-            //Fin des frames atteint
+            // Fin des frames atteint
             break;
         }
         else
@@ -141,7 +199,7 @@ int main(int argc, char *argv[])
         }
         if (numberOfBytesInCurrentFrame == 0)
         {
-            //Fin des frames atteint
+            // Fin des frames atteint
             break;
         }
         else
@@ -163,9 +221,13 @@ int main(int argc, char *argv[])
     // Init espace memoire partage
     struct memPartage sharedMemoryZone;
     struct memPartageHeader sharedMemoryHeader;
-    size_t sizeOfSharedMemory = sizeof(sharedMemoryHeader) + largestFrameSize;
+    size_t sizeOfSharedMemory = sizeof(struct memPartageHeader) + largestFrameSize;
+    sharedMemoryHeader.hauteur = videoInfo.hauteur;
+    sharedMemoryHeader.largeur = videoInfo.largeur;
+    sharedMemoryHeader.canaux = videoInfo.canaux;
+    sharedMemoryHeader.fps = videoInfo.fps;
 
-    if (initMemoirePartageeEcrivain(argv[optind + 1], &sharedMemoryZone, sizeOfSharedMemory, &sharedMemoryHeader) < 0)
+    if (initMemoirePartageeEcrivain(sortie, &sharedMemoryZone, sizeOfSharedMemory, &sharedMemoryHeader) < 0)
     {
         return -1;
     }
@@ -174,6 +236,11 @@ int main(int argc, char *argv[])
     printf("Decoder started\n");
     while (1)
     {
+        if (sharedMemoryHeader.frameWriter >= numberOfFramesInVideo - 1)
+        {
+            // Atteint la fin de la video, on recommence au premier frame
+            sharedMemoryHeader.frameWriter = 1;
+        }
         // Get the current frame pointer and size
         uintptr_t currentFramePointer = framePointerArray[sharedMemoryHeader.frameWriter - 1];
         uint32_t currentFrameSize = frameSizeArray[sharedMemoryHeader.frameWriter - 1];
@@ -184,52 +251,22 @@ int main(int argc, char *argv[])
         int actualHeight;
 
         sharedMemoryZone.data = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
+        // memcpy(sharedMemoryZone.data, dataToWrite, currentFrameSize);
         sharedMemoryHeader.hauteur = actualHeight;
         sharedMemoryHeader.largeur = actualWidth;
         sharedMemoryHeader.canaux = actualComp;
-        sharedMemoryHeader.fps = videoInfo.fps;
-        sharedMemoryHeader.frameWriter = sharedMemoryHeader.frameReader;
+
+        /*printf("Pointing to frame of ");
+        printf("%d", currentFrameSize);
+        printf(" bytes, located at ");
+        printf("%x", currentFramePointer);
+        printf("\n");*/
+
+        sharedMemoryZone.copieCompteur = sharedMemoryHeader.frameReader;
+        pthread_mutex_unlock(&sharedMemoryZone.header->mutex);
 
         attenteEcrivain(&sharedMemoryZone);
-        if(sharedMemoryHeader.frameWriter++ >= numberOfFramesInVideo - 1)
-        {
-            //Atteint la fin de la video, on recommence au premier frame
-            sharedMemoryHeader.frameWriter = 1;
-        }
+        sharedMemoryHeader.frameWriter++;
     }
     return 0;
 }
-
-/******************************************************************************
- * FORMAT DU FICHIER VIDEO
- * Offset     Taille     Type      Description
- * 0          4          char      Header (toujours "SETR" en ASCII)
- * 4          4          uint32    Largeur des images du vidéo
- * 8          4          uint32    Hauteur des images du vidéo
- * 12         4          uint32    Nombre de canaux dans les images
- * 16         4          uint32    Nombre d'images par seconde (FPS)
- * 20         4          uint32    Taille (en octets) de la première image -> N
- * 24         N          char      Contenu de la première image (row-first)
- * 24+N       4          uint32    Taille (en octets) de la seconde image -> N2
- * 24+N+4     N2         char      Contenu de la seconde image
- * 24+N+N2    4          uint32    Taille (en octets) de la troisième image -> N2
- * ...                             Toutes les images composant la vidéo, à la suite
- *            4          uint32    0 (indique la fin du fichier)
- ******************************************************************************/
-/*
-struct memPartage{
-    int fd;
-    struct memPartageHeader *header;
-    size_t tailleDonnees;
-    unsigned char* data;
-    uint32_t copieCompteur;             // Permet de se rappeler le compteur de l'autre processus
-};
-struct memPartageHeader{
-    pthread_mutex_t mutex;
-    uint32_t frameWriter;
-    uint32_t frameReader;
-    uint16_t hauteur;
-    uint16_t largeur;
-    uint16_t canaux;
-    uint16_t fps;
-};*/
