@@ -7,6 +7,8 @@
  * Fichier implémentant le programme de décodage des fichiers ULV
  ******************************************************************************/
 
+#undef __STRICT_ANSI__
+
 // Gestion des ressources et permissions
 #include <sys/resource.h>
 
@@ -85,12 +87,11 @@ int main(int argc, char *argv[])
     struct stat videoFileStats;
     fstat(videoFileDescriptor, &videoFileStats);
 
-    char* videoFilePointer = (char*) mmap(NULL, videoFileStats.st_size, PROT_READ, MAP_PRIVATE, videoFileDescriptor, 0);//Crash avec MAP_POPULATE, mais fonctionne avec MAP_PRIVATE
-
+    char *videoFilePointer = (char *)mmap(NULL, videoFileStats.st_size, PROT_READ, MAP_PRIVATE, videoFileDescriptor, 0);
 
     char fileHeader[4];
     memcpy(fileHeader, videoFilePointer, sizeof(char) * 4);
-    if (strncmp(fileHeader, header, sizeof(char)*4) != 0)
+    if (strncmp(fileHeader, header, sizeof(char) * 4) != 0)
     {
         // Invalid file input
         printf("En-tete du fichier d'entree invalide\n");
@@ -100,35 +101,102 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    //Obtient hauteur, largeur, nb de canaux et images par seconde
+    // Obtient hauteur, largeur, nb de canaux et images par seconde
     struct videoInfos videoInfo;
     memcpy(&videoInfo, &videoFilePointer[4], sizeof(struct videoInfos));
 
-    //obtient taille des images
-    uint32_t numberOfBytesInFrame;
-    memcpy(&numberOfBytesInFrame, &videoFilePointer[20], sizeof(uint32_t));
-
-    // essaie decodage image
-    int actualComp;
-    int actualWidth;
-    int actualHeight;
-
-    char* frame = (char *) malloc(numberOfBytesInFrame);
-    memcpy(frame, &videoFilePointer[24], numberOfBytesInFrame);
-
-    unsigned char *jpegImage = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)frame, numberOfBytesInFrame, &actualWidth, &actualHeight, &actualComp, 3, 0);
-
-    const char *nomImage = {"Test_Image.ppm"};
-    enregistreImage((const unsigned char *)jpegImage, actualHeight, actualWidth, actualComp, nomImage);
-
-    free(frame);
-
-    /*struct stat st = {0};
-    if(stat(argv[optind+1], &st) == -1)
+    // Creation d'une array de pointer vers chaque frame, pour obtenir facilement chaque frame lors de l'ecriture
+    // Commence par obtenir le nombre de frames
+    uint32_t numberOfBytesRead = 0;
+    uint32_t numberOfFramesInVideo = 0;
+    while (1)
     {
-        mkdir(argv[optind+1], 0777);
-    }*/
+        uint32_t numberOfBytesInCurrentFrame;
+        memcpy(&numberOfBytesInCurrentFrame, &videoFilePointer[numberOfBytesRead + (numberOfFramesInVideo * 4) + 20], sizeof(uint32_t));
+        if (numberOfBytesInCurrentFrame == 0)
+        {
+            //Fin des frames atteint
+            break;
+        }
+        else
+        {
+            numberOfFramesInVideo++;
+            numberOfBytesRead += numberOfBytesInCurrentFrame;
+        }
+    }
+    // Cree l'array et recommence la boucle pour sauvegarder chaque pointer de frame dans l'array, on sauvegarde aussi la taille de chaque frame
+    // On trouve aussi l'image la plus grosse
+    uintptr_t *framePointerArray = (uintptr_t *)malloc(sizeof(uintptr_t) * numberOfFramesInVideo);
+    uint32_t *frameSizeArray = (uint32_t *)malloc(sizeof(unsigned int) * numberOfFramesInVideo);
+    uint32_t largestFrameSize = 0;
+    numberOfBytesRead = 0;
+    numberOfFramesInVideo = 0;
+    while (1)
+    {
+        uint32_t numberOfBytesInCurrentFrame;
+        memcpy(&numberOfBytesInCurrentFrame, &videoFilePointer[numberOfBytesRead + (numberOfFramesInVideo * 4) + 20], sizeof(uint32_t));
+        if (largestFrameSize < numberOfBytesInCurrentFrame)
+        {
+            largestFrameSize = numberOfBytesInCurrentFrame;
+        }
+        if (numberOfBytesInCurrentFrame == 0)
+        {
+            //Fin des frames atteint
+            break;
+        }
+        else
+        {
+            framePointerArray[numberOfFramesInVideo] = (uintptr_t)&videoFilePointer[numberOfBytesRead + (numberOfFramesInVideo * 4) + 24];
+            frameSizeArray[numberOfFramesInVideo] = numberOfBytesInCurrentFrame;
 
+            numberOfBytesRead += numberOfBytesInCurrentFrame;
+            numberOfFramesInVideo++;
+        }
+    }
+
+    if (prepareMemoire(largestFrameSize, largestFrameSize) < 0)
+    {
+        printf("Echec preparation memoire par decodeur\n");
+        return -1;
+    }
+
+    // Init espace memoire partage
+    struct memPartage sharedMemoryZone;
+    struct memPartageHeader sharedMemoryHeader;
+    size_t sizeOfSharedMemory = sizeof(sharedMemoryHeader) + largestFrameSize;
+
+    if (initMemoirePartageeEcrivain(argv[optind + 1], &sharedMemoryZone, sizeOfSharedMemory, &sharedMemoryHeader) < 0)
+    {
+        return -1;
+    }
+
+    // decodage image et ecriture dans memoire partage
+    printf("Decoder started\n");
+    while (1)
+    {
+        // Get the current frame pointer and size
+        uintptr_t currentFramePointer = framePointerArray[sharedMemoryHeader.frameWriter - 1];
+        uint32_t currentFrameSize = frameSizeArray[sharedMemoryHeader.frameWriter - 1];
+
+        // Write frame data to shared memory zone
+        int actualComp;
+        int actualWidth;
+        int actualHeight;
+
+        sharedMemoryZone.data = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
+        sharedMemoryHeader.hauteur = actualHeight;
+        sharedMemoryHeader.largeur = actualWidth;
+        sharedMemoryHeader.canaux = actualComp;
+        sharedMemoryHeader.fps = videoInfo.fps;
+        sharedMemoryHeader.frameWriter = sharedMemoryHeader.frameReader;
+
+        attenteEcrivain(&sharedMemoryZone);
+        if(sharedMemoryHeader.frameWriter++ >= numberOfFramesInVideo - 1)
+        {
+            //Atteint la fin de la video, on recommence au premier frame
+            sharedMemoryHeader.frameWriter = 1;
+        }
+    }
     return 0;
 }
 
@@ -148,3 +216,20 @@ int main(int argc, char *argv[])
  * ...                             Toutes les images composant la vidéo, à la suite
  *            4          uint32    0 (indique la fin du fichier)
  ******************************************************************************/
+/*
+struct memPartage{
+    int fd;
+    struct memPartageHeader *header;
+    size_t tailleDonnees;
+    unsigned char* data;
+    uint32_t copieCompteur;             // Permet de se rappeler le compteur de l'autre processus
+};
+struct memPartageHeader{
+    pthread_mutex_t mutex;
+    uint32_t frameWriter;
+    uint32_t frameReader;
+    uint16_t hauteur;
+    uint16_t largeur;
+    uint16_t canaux;
+    uint16_t fps;
+};*/

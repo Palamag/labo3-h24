@@ -34,6 +34,7 @@ int prepareMemoire(size_t tailleImageEntree, size_t tailleImageSortie)
     if (errno == ENOMEM)
     {
         // memory allocation failed or too much memory requested
+        printf("Echec preparation memoire\n");
         return -1;
     }
 
