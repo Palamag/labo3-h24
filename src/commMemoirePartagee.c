@@ -18,13 +18,13 @@ int initMemoirePartageeLecteur(const char* identifiant, struct memPartage *zone)
         shm = shm_open(identifiant, O_RDWR, 0666);
     }
 
-    struct stat *taille_Shm = 0;
-    while ((size_t)taille_Shm == 0)
+    struct stat taille_Shm;
+    while (fstat(shm, &taille_Shm) < 0)
     {
-        fstat(shm, taille_Shm);
+        ;
     }
 
-    unsigned char *ptr = (unsigned char*)mmap(NULL, (size_t)taille_Shm, PROT_READ, MAP_SHARED, shm, 0);
+    unsigned char *ptr = (unsigned char*)mmap(NULL, taille_Shm.st_size, PROT_READ, MAP_SHARED, shm, 0);
 
     struct memPartageHeader *entete = (struct memPartageHeader*) ptr;
 
@@ -32,7 +32,7 @@ int initMemoirePartageeLecteur(const char* identifiant, struct memPartage *zone)
 
     zone->fd = shm;
     zone->header = entete;
-    zone->tailleDonnees = (size_t)taille_Shm - sizeof(struct memPartageHeader);
+    zone->tailleDonnees = taille_Shm.st_size - sizeof(struct memPartageHeader);
     zone->data = data;
 
     while(pthread_mutex_trylock(&zone->header->mutex) < 0) sched_yield();
