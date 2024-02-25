@@ -9,58 +9,61 @@
 
 #include "commMemoirePartagee.h"
 
-int initMemoirePartageeLecteur(const char* identifiant,
-                                struct memPartage *zone) 
+int initMemoirePartageeLecteur(const char* identifiant, struct memPartage *zone) 
 {
     int shm = -1;
-    int trunc = -1;
 
-    while (shm < 0 && trunc < 0) 
+    while (shm < 0) 
     {
-        shm = shm_open(identifiant, O_RDWR | O_CREAT, 0666);
-        trunc = ftruncate(shm, zone->tailleDonnees);
+        shm = shm_open(identifiant, O_RDWR, 0666);
     }
 
-    zone->data = (unsigned char*)mmap(NULL, zone->tailleDonnees, PROT_READ, MAP_SHARED, shm, 0);
-
-    if (zone->data == MAP_FAILED) 
+    struct stat *taille_Shm = 0;
+    while ((size_t)taille_Shm == 0)
     {
-        perror("erreur in mmap");
-        return -1;
+        fstat(shm, taille_Shm);
     }
 
-    while (zone->header->frameWriter == 0) sched_yield();
+    unsigned char *ptr = (unsigned char*)mmap(NULL, (size_t)taille_Shm, PROT_READ, MAP_SHARED, shm, 0);
+
+    struct memPartageHeader *entete = (struct memPartageHeader*) ptr;
+
+    unsigned char *data = ptr + sizeof(&entete);
+
+    zone->fd = shm;
+    zone->header = entete;
+    zone->tailleDonnees = (size_t)taille_Shm - sizeof(struct memPartageHeader);
+    zone->data = data;
+
     while(pthread_mutex_trylock(&zone->header->mutex) < 0) sched_yield();
 
     return 0;
 }
 
-int initMemoirePartageeEcrivain(const char* identifiant,
-                                struct memPartage *zone,
-                                size_t taille,
-                                struct memPartageHeader* headerInfos)
+
+/**
+ * il faut mettre canaux, fps, largeur et hauteur d'avance dans le headerInfos avant de le passer
+*/
+int initMemoirePartageeEcrivain(const char* identifiant, struct memPartage *zone, size_t taille, struct memPartageHeader* headerInfos)
 {
     int shm = shm_open(identifiant, O_RDWR | O_CREAT, 0666);
 
     ftruncate(shm, taille);
 
-    zone->data = (unsigned char*)mmap(NULL, taille, PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
-
-    if (zone->data == MAP_FAILED) 
-    {
-        printf("erreur in mmap");
-        return -1;
-    }
+    unsigned char *ptr = (unsigned char*)mmap(NULL, taille, PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
 
     pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_init(&mut, NULL);
 
     headerInfos->mutex = mut;
-    zone->tailleDonnees = taille;
+    zone->fd = shm;
+    zone->tailleDonnees = taille - sizeof(struct memPartageHeader);
     zone->header = headerInfos;
+    zone->data = ptr + sizeof(struct memPartageHeader);
 
     pthread_mutex_lock(&mut);
-    zone->header->frameWriter++;
+    zone->header->frameReader = 0;
+    zone->header->frameWriter = 1;
 
     return 0;
 }
