@@ -106,10 +106,52 @@ int main(int argc, char* argv[]){
 
     printf("Initialisation convertisseur, entree=%s, sortie=%s, mode d'ordonnancement=%i\n", entree, sortie, modeOrdonnanceur);
     
-    // Écrivez le code permettant de convertir une image en niveaux de gris, en utilisant la
-    // fonction convertToGray de utils.c. Votre code doit lire une image depuis une zone mémoire 
-    // partagée et envoyer le résultat sur une autre zone mémoire partagée.
-    // N'oubliez pas de respecter la syntaxe de la ligne de commande présentée dans l'énoncé.
+    struct memPartage *mem_partage_in;
+    mem_partage_in = (struct memPartage*)malloc(sizeof(struct memPartage));
+
+    int init_mem_in = initMemoirePartageeLecteur((const char*)entree, mem_partage_in);
+    if (init_mem_in < 0){
+        printf("Erreur lors de l'initialisation de la memoire");
+        return -1;
+    }
+
+    struct memPartage *mem_partage_out;
+    struct memPartageHeader *mem_partage_header;
+
+    mem_partage_out = (struct memPartage*)malloc(sizeof(struct memPartage));
+
+    size_t video_out_size = (size_t)(sizeof(struct memPartageHeader) + mem_partage_in->header->canaux * mem_partage_in->header->hauteur * mem_partage_in->header->largeur);
+
+    int init_mem_out = initMemoirePartageeEcrivain((const char*)sortie, mem_partage_out, video_out_size, mem_partage_header);
+    if (init_mem_out < 0){
+        printf("Erreur lors de l'initialisation de la memoire");
+        return -1;
+    }
+
+    mem_partage_header->hauteur = mem_partage_in->header->hauteur;
+    mem_partage_header->largeur =  mem_partage_in->header->largeur;
+    mem_partage_header->canaux =  mem_partage_in->header->canaux;
+    mem_partage_header->fps =  mem_partage_in->header->fps;
+
+    while(true){
+
+        pthread_mutex_lock(&mem_partage_in->header->mutex);
+        mem_partage_in->header->frameReader++;
+
+        unsigned char* current_data = mem_partage_in->data;
+        mem_partage_in->copieCompteur = mem_partage_in->header->frameWriter;
+
+        attenteLecteur(mem_partage_in); 
+
+        convertToGray(current_data, mem_partage_in->header->largeur, mem_partage_in->header->hauteur, mem_partage_in->header->canaux, mem_partage_out->data);
+
+        mem_partage_out->copieCompteur = mem_partage_header->frameReader;
+        pthread_mutex_unlock(&mem_partage_header->mutex);
+
+        attenteEcrivain(mem_partage_out);
+
+        mem_partage_header->frameWriter++;
+    }
 
     return 0;
 }

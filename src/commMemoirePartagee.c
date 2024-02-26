@@ -19,10 +19,7 @@ int initMemoirePartageeLecteur(const char* identifiant, struct memPartage *zone)
     }
 
     struct stat taille_Shm;
-    while (fstat(shm, &taille_Shm) < 0)
-    {
-        ;
-    }
+    while (fstat(shm, &taille_Shm) < 0);
 
     unsigned char *ptr = (unsigned char*)mmap(NULL, taille_Shm.st_size, PROT_READ, MAP_SHARED, shm, 0);
 
@@ -70,7 +67,7 @@ int initMemoirePartageeEcrivain(const char* identifiant, struct memPartage *zone
 
 int attenteLecteur(struct memPartage *zone)
 {
-    while (zone->header->frameWriter == zone->header->frameReader) sched_yield();
+    while (zone->header->frameWriter == zone->copieCompteur) sched_yield();
     while(pthread_mutex_trylock(&zone->header->mutex) < 0) sched_yield();
     return 0;
 }
@@ -82,7 +79,7 @@ int attenteLecteurAsync(struct memPartage *zone)
 
 int attenteEcrivain(struct memPartage *zone)
 {
-    while (zone->header->frameWriter == zone->header->frameReader) sched_yield();
+    while (zone->header->frameReader == zone->copieCompteur) sched_yield();
     while(pthread_mutex_trylock(&zone->header->mutex) < 0) sched_yield();
     return 0;
 }
