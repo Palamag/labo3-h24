@@ -188,7 +188,129 @@ int main(int argc, char* argv[])
 {
     // TODO
     // ÉCRIVEZ ICI votre code d'analyse des arguments du programme et d'initialisation des zones mémoire partagées
-    int nbrActifs;      // Après votre initialisation, cette variable DOIT contenir le nombre de flux vidéos actifs (de 1 à 4 inclusivement).
+	int nb_arg = (sizeof(argv) / sizeof(argv[0])) - optind;
+	char* flux[nb_arg];
+	int modeOrdonnanceur = ORDONNANCEMENT_NORT;
+	unsigned int runtime, deadline, period;
+
+	if (argc < 1) {
+		printf("Nombre d'arguments insuffisant\n");
+        return -1;
+	}
+
+	if(strcmp(argv[1], "--debug") == 0){
+        // Mode debug, vous pouvez changer ces valeurs pour ce qui convient dans vos tests
+        printf("Mode debug selectionne pour le convertisseur niveau de gris\n");
+        
+    }
+
+	else{
+		int c;
+        int deadlineParamIndex = 0;
+        char* splitString;
+
+		opterr = 0;
+
+		while ((c = getopt(argc, argv, "s:d:")) != -1){
+			switch (c)
+			{
+			case 's':
+				if(strcmp(optarg, "NORT") == 0){
+                        modeOrdonnanceur = ORDONNANCEMENT_NORT;
+                    }
+                    else if(strcmp(optarg, "RR") == 0){
+                        modeOrdonnanceur = ORDONNANCEMENT_RR;
+                    }
+                    else if(strcmp(optarg, "FIFO") == 0){
+                        modeOrdonnanceur = ORDONNANCEMENT_FIFO;
+                    }
+                    else if(strcmp(optarg, "DEADLINE") == 0){
+                        modeOrdonnanceur = ORDONNANCEMENT_DEADLINE;
+                    }
+                    else{
+                        modeOrdonnanceur = ORDONNANCEMENT_NORT;
+                        printf("Mode d'ordonnancement %s non valide, defaut sur NORT\n", optarg);
+                    }
+				break;
+			
+			case 'd':
+				splitString = strtok(optarg, ",");
+                    while (splitString != NULL)
+                    {
+                        if(deadlineParamIndex == 0){
+                            // Runtime
+                            runtime = atoi(splitString);
+                        }
+                        else if(deadlineParamIndex == 1){
+                            deadline = atoi(splitString);
+                        }
+                        else{
+                            period = atoi(splitString);
+                            break;
+                        }
+                        deadlineParamIndex++;
+                        splitString = strtok(NULL, ",");
+                    }
+                    break;
+			default:
+				continue;
+			}
+		}
+
+		if (argc - optind < 1){
+			printf("Arguments manquants (fichier_entree flux_sortie)\n");
+            return -1;
+		}
+		for (int i = 0; i < nb_arg; i++){
+			flux[i] = argv[optind + i];
+		}
+	}
+
+	struct memPartage partages[nb_arg];
+	int flagsFluxs[nb_arg];
+	int totalFluxs = 0;
+
+	while (totalFluxs != nb_arg)
+	{	
+		for (size_t i = 0; i < nb_arg; i++)
+		{
+			if ((flagsFluxs[i] != 1) && (attenteLecteurAsync(&partages[i]))) {
+				initMemoirePartageeLecteur(flux[i], &partages[i]);
+				if (partages[i].tailleDonnees != 0)
+				{
+					totalFluxs += 1;
+					flagsFluxs[i] = 1;
+				}
+			}
+		}
+	}
+	
+	struct memPartageHeader *memHeaders[nb_arg];
+	unsigned char *ptr_data[nb_arg];
+
+	for (size_t i = 0; i < nb_arg; i++)
+	{
+		memHeaders[i] = partages[i].header;
+		ptr_data[i] = malloc(partages[i].tailleDonnees);
+		int check = -1;
+		while (check == -1)
+		{
+			check = mlock(ptr_data[i], partages[i].tailleDonnees);
+		}
+	}
+
+	int frameCourante[nb_arg];
+	double lastFrameTime[nb_arg];
+	for (size_t i = 0; i < nb_arg; i++)
+	{
+		while (partages[i].copieCompteur == 0);
+		frameCourante[i] = 0;
+		lastFrameTime[i] = get_time();
+	}
+		
+	
+
+    int nbrActifs = nb_arg;      // Après votre initialisation, cette variable DOIT contenir le nombre de flux vidéos actifs (de 1 à 4 inclusivement)
     
     // On desactive le buffering pour les printf(), pour qu'il soit possible de les voir depuis votre ordinateur
 	setbuf(stdout, NULL);
@@ -271,18 +393,52 @@ int main(int argc, char* argv[])
             // 427x240 (voir le commentaire en haut du document).
         
             // Exemple d'appel à ecrireImage (n'oubliez pas de remplacer les arguments commençant par A_REMPLIR!)
-            ecrireImage(A_REMPLIR_POSITION_ACTUELLE, 
-                        nbrActifs, 
-                        fbfd, 
-                        fbp, 
-                        vinfo.xres, 
-                        vinfo.yres, 
-                        &vinfo, 
-                        finfo.line_length,
-                        A_REMPLIR_DONNEES_DE_LA_TRAME,
-                        A_REMPLIR_HAUTEUR_DE_LA_TRAME,
-                        A_REMPLIR_LARGEUR_DE_LA_TRAME,
-                        A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME);
+
+			for (size_t i = 0; i < nb_arg; i++)
+			{
+				if (get_time() - lastFrameTime[i] >= (1/memHeaders[i]->fps))
+				{
+					if (partages[i].copieCompteur != memHeaders[i]->frameReader)
+					{
+						if (pthread_mutex_trylock(&memHeaders[i]->mutex) == 0)
+						{
+							memHeaders[i]->frameReader++;
+							ecrireImage(partages[i].copieCompteur,
+										nbrActifs,
+										fbfd,
+										fbp,
+										vinfo.xres, 
+										vinfo.yres, 
+										&vinfo, 
+										finfo.line_length,
+										partages[i].data,
+										memHeaders[i]->hauteur,
+										memHeaders[i]->largeur,
+										memHeaders[i]->canaux
+							);
+
+							lastFrameTime[i] = get_time();
+
+							partages[i].copieCompteur = memHeaders[i]->frameReader;
+							pthread_mutex_unlock(&memHeaders[i]->mutex);
+						}
+					}
+				}
+			}
+			
+
+            // ecrireImage(A_REMPLIR_POSITION_ACTUELLE, 
+            //             nbrActifs, 
+            //             fbfd, 
+            //             fbp, 
+            //             vinfo.xres, 
+            //             vinfo.yres, 
+            //             &vinfo, 
+            //             finfo.line_length,
+            //             A_REMPLIR_DONNEES_DE_LA_TRAME,
+            //             A_REMPLIR_HAUTEUR_DE_LA_TRAME,
+            //             A_REMPLIR_LARGEUR_DE_LA_TRAME,
+            //             A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME);
     }
 
 
