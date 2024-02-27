@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
     fstat(videoFileDescriptor, &videoFileStats);
 
     char *videoFilePointer = (char *)mmap(NULL, videoFileStats.st_size, PROT_READ, MAP_PRIVATE, videoFileDescriptor, 0);
+    mlock(videoFilePointer, videoFileStats.st_size);
 
     char fileHeader[4];
     memcpy(fileHeader, videoFilePointer, sizeof(char) * 4);
@@ -212,6 +213,7 @@ int main(int argc, char *argv[])
         }
     }
 
+
     if (prepareMemoire(largestFrameSize, largestFrameSize) < 0)
     {
         printf("Echec preparation memoire par decodeur\n");
@@ -233,7 +235,6 @@ int main(int argc, char *argv[])
     }
 
     // decodage image et ecriture dans memoire partage
-    printf("Decoder started\n");
     while (1)
     {
         if (sharedMemoryHeader.frameWriter >= numberOfFramesInVideo - 1)
@@ -250,17 +251,18 @@ int main(int argc, char *argv[])
         int actualWidth;
         int actualHeight;
 
-        sharedMemoryZone.data = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
-        // memcpy(sharedMemoryZone.data, dataToWrite, currentFrameSize);
+        unsigned char* dataToWrite = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
+        size_t sizeOfDataToWrite = (actualComp * actualWidth * actualHeight);
         sharedMemoryHeader.hauteur = actualHeight;
         sharedMemoryHeader.largeur = actualWidth;
         sharedMemoryHeader.canaux = actualComp;
+        memcpy(&sharedMemoryZone.data[40], dataToWrite, sizeOfDataToWrite);
 
-        /*printf("Pointing to frame of ");
-        printf("%d", currentFrameSize);
-        printf(" bytes, located at ");
-        printf("%x", currentFramePointer);
-        printf("\n");*/
+        printf("Decoder wrote frame of size ");
+        printf("%d", sizeOfDataToWrite);
+        printf(" at location ");
+        printf("%x", &sharedMemoryZone.data[40]);
+        printf("\n");
 
         sharedMemoryZone.copieCompteur = sharedMemoryHeader.frameReader;
         pthread_mutex_unlock(&sharedMemoryZone.header->mutex);
