@@ -74,7 +74,7 @@ int attenteLecteur(struct memPartage *zone)
 
 int attenteLecteurAsync(struct memPartage *zone)
 {
-    return 0;
+        return 0;
 }
 
 int attenteEcrivain(struct memPartage *zone)
