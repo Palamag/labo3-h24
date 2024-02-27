@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
     int modeOrdonnanceur = ORDONNANCEMENT_NORT;
     unsigned int runtime, deadline, period;
     int deadlineParamIndex = 0;
-    char* splitString;
+    char *splitString;
     while ((c = getopt(argc, argv, "s:d:")) != -1)
     {
         switch (c)
@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
     fstat(videoFileDescriptor, &videoFileStats);
 
     char *videoFilePointer = (char *)mmap(NULL, videoFileStats.st_size, PROT_READ, MAP_PRIVATE, videoFileDescriptor, 0);
+    mlock(videoFilePointer, videoFileStats.st_size);
 
     char fileHeader[4];
     memcpy(fileHeader, videoFilePointer, sizeof(char) * 4);
@@ -162,6 +163,7 @@ int main(int argc, char *argv[])
     // Obtient hauteur, largeur, nb de canaux et images par seconde
     struct videoInfos videoInfo;
     memcpy(&videoInfo, &videoFilePointer[4], sizeof(struct videoInfos));
+    size_t sizeOfImages = videoInfo.canaux + videoInfo.largeur + videoInfo.hauteur;
 
     // Creation d'une array de pointer vers chaque frame, pour obtenir facilement chaque frame lors de l'ecriture
     // Commence par obtenir le nombre de frames
@@ -186,17 +188,12 @@ int main(int argc, char *argv[])
     // On trouve aussi l'image la plus grosse
     uintptr_t *framePointerArray = (uintptr_t *)malloc(sizeof(uintptr_t) * numberOfFramesInVideo);
     uint32_t *frameSizeArray = (uint32_t *)malloc(sizeof(unsigned int) * numberOfFramesInVideo);
-    uint32_t largestFrameSize = 0;
     numberOfBytesRead = 0;
     numberOfFramesInVideo = 0;
     while (1)
     {
         uint32_t numberOfBytesInCurrentFrame;
         memcpy(&numberOfBytesInCurrentFrame, &videoFilePointer[numberOfBytesRead + (numberOfFramesInVideo * 4) + 20], sizeof(uint32_t));
-        if (largestFrameSize < numberOfBytesInCurrentFrame)
-        {
-            largestFrameSize = numberOfBytesInCurrentFrame;
-        }
         if (numberOfBytesInCurrentFrame == 0)
         {
             // Fin des frames atteint
@@ -212,7 +209,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (prepareMemoire(largestFrameSize, largestFrameSize) < 0)
+    if (prepareMemoire(sizeOfImages, sizeOfImages) < 0)
     {
         printf("Echec preparation memoire par decodeur\n");
         return -1;
@@ -221,7 +218,7 @@ int main(int argc, char *argv[])
     // Init espace memoire partage
     struct memPartage sharedMemoryZone;
     struct memPartageHeader sharedMemoryHeader;
-    size_t sizeOfSharedMemory = sizeof(struct memPartageHeader) + largestFrameSize;
+    size_t sizeOfSharedMemory = sizeof(struct memPartageHeader) + sizeOfImages;
     sharedMemoryHeader.hauteur = videoInfo.hauteur;
     sharedMemoryHeader.largeur = videoInfo.largeur;
     sharedMemoryHeader.canaux = videoInfo.canaux;
@@ -233,7 +230,6 @@ int main(int argc, char *argv[])
     }
 
     // decodage image et ecriture dans memoire partage
-    printf("Decoder started\n");
     while (1)
     {
         if (sharedMemoryHeader.frameWriter >= numberOfFramesInVideo - 1)
@@ -250,17 +246,9 @@ int main(int argc, char *argv[])
         int actualWidth;
         int actualHeight;
 
-        sharedMemoryZone.data = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
-        // memcpy(sharedMemoryZone.data, dataToWrite, currentFrameSize);
-        sharedMemoryHeader.hauteur = actualHeight;
-        sharedMemoryHeader.largeur = actualWidth;
-        sharedMemoryHeader.canaux = actualComp;
+        unsigned char *dataToWrite = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
 
-        /*printf("Pointing to frame of ");
-        printf("%d", currentFrameSize);
-        printf(" bytes, located at ");
-        printf("%x", currentFramePointer);
-        printf("\n");*/
+        memcpy(sharedMemoryZone.data, dataToWrite, sizeOfImages);
 
         sharedMemoryZone.copieCompteur = sharedMemoryHeader.frameReader;
         pthread_mutex_unlock(&sharedMemoryZone.header->mutex);

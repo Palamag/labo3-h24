@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #define DELAI_INIT_READER_USEC 1000
 
