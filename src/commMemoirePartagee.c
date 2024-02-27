@@ -8,6 +8,8 @@
  ******************************************************************************/
 
 #include "commMemoirePartagee.h"
+#include <unistd.h>
+#include <stdbool.h>
 
 int initMemoirePartageeLecteur(const char* identifiant, struct memPartage *zone) 
 {
@@ -67,8 +69,8 @@ int initMemoirePartageeEcrivain(const char* identifiant, struct memPartage *zone
 
 int attenteLecteur(struct memPartage *zone)
 {
-    while (zone->header->frameWriter == zone->copieCompteur) sched_yield();
-    while(pthread_mutex_trylock(&zone->header->mutex) < 0) sched_yield();
+    while (zone->copieCompteur  == zone->header->frameWriter) {usleep(5);}
+    while (pthread_mutex_trylock(&zone->header->mutex) == false){sched_yield();}
     return 0;
 }
 
@@ -79,7 +81,7 @@ int attenteLecteurAsync(struct memPartage *zone)
 
 int attenteEcrivain(struct memPartage *zone)
 {
-    while (zone->header->frameReader == zone->copieCompteur) sched_yield();
-    while(pthread_mutex_trylock(&zone->header->mutex) < 0) sched_yield();
+    while (zone->copieCompteur == zone->header->frameReader) {usleep(5);}
+    while (pthread_mutex_trylock(&zone->header->mutex) == false){sched_yield();}
     return 0;
 }
