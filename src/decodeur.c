@@ -209,11 +209,11 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (prepareMemoire(sizeOfImages, sizeOfImages) < 0)
+    /*if (prepareMemoire(sizeOfImages, sizeOfImages) < 0)
     {
         printf("Echec preparation memoire par decodeur\n");
         return -1;
-    }
+    }*/
 
     // Init espace memoire partage
     struct memPartage sharedMemoryZone;
@@ -249,6 +249,7 @@ int main(int argc, char *argv[])
         unsigned char *dataToWrite = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
 
         memcpy(sharedMemoryZone.data, dataToWrite, sizeOfImages);
+        tempsreel_free(dataToWrite);
 
         sharedMemoryZone.copieCompteur = sharedMemoryHeader.frameReader;
         pthread_mutex_unlock(&sharedMemoryZone.header->mutex);
