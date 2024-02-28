@@ -52,7 +52,7 @@ int initMemoirePartageeEcrivain(const char *identifiant, struct memPartage *zone
 
     unsigned char *ptr = (unsigned char *)mmap(NULL, taille, PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
 
-    //pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
+    //pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;//This is meant only for static mutex initialization. Use pthread_mutex_init when initializing a mutex on runtime
     pthread_mutex_t mut;
     pthread_mutex_init(&mut, NULL);
     pthread_mutex_lock(&mut);
@@ -76,10 +76,7 @@ int attenteLecteur(struct memPartage *zone)
     {
         usleep(5);
     }
-    while (pthread_mutex_trylock(&zone->header->mutex) != 0)
-    {
-        sched_yield();
-    }
+    pthread_mutex_trylock(&zone->header->mutex);
     return 0;
 }
 
@@ -94,9 +91,6 @@ int attenteEcrivain(struct memPartage *zone)
     {
         usleep(5);
     }
-    while (pthread_mutex_trylock(&zone->header->mutex) != 0)
-    {
-        sched_yield();
-    }
+    pthread_mutex_trylock(&zone->header->mutex);
     return 0;
 }
