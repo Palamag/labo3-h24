@@ -8,8 +8,6 @@
  ******************************************************************************/
 
 #include "commMemoirePartagee.h"
-#include <unistd.h>
-#include <stdbool.h>
 
 int initMemoirePartageeLecteur(const char *identifiant, struct memPartage *zone)
 {
@@ -24,7 +22,7 @@ int initMemoirePartageeLecteur(const char *identifiant, struct memPartage *zone)
     while (fstat(shm, taille_Shm) < 0)
         ;
 
-    unsigned char *ptr = (unsigned char *)mmap(NULL, taille_Shm->st_size, PROT_READ, MAP_SHARED, shm, 0);
+    unsigned char *ptr = (unsigned char *)mmap(NULL, taille_Shm->st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
 
     struct memPartageHeader *entete = (struct memPartageHeader *)ptr;
 
@@ -34,8 +32,9 @@ int initMemoirePartageeLecteur(const char *identifiant, struct memPartage *zone)
     zone->header = entete;
     zone->tailleDonnees = taille_Shm->st_size - sizeof(struct memPartageHeader);
     zone->data = data;
+    zone->copieCompteur = 0;
 
-    pthread_mutex_trylock(&zone->header->mutex);
+    pthread_mutex_lock(&entete->mutex);
 
     return 0;
 }
@@ -45,27 +44,34 @@ int initMemoirePartageeLecteur(const char *identifiant, struct memPartage *zone)
  */
 int initMemoirePartageeEcrivain(const char *identifiant, struct memPartage *zone, size_t taille, struct memPartageHeader *headerInfos)
 {
-    int shm = shm_open(identifiant, O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
-    fchmod(shm, S_IRWXU | S_IRWXG | S_IRWXO);
+    int shm = shm_open(identifiant, O_RDWR | O_CREAT, 0666);
 
-    ftruncate(shm, taille);
+    ftruncate(shm, taille + sizeof(struct memPartageHeader));
 
     unsigned char *ptr = (unsigned char *)mmap(NULL, taille, PROT_READ | PROT_WRITE, MAP_SHARED, shm, 0);
 
-    //pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;//This is meant only for static mutex initialization. Use pthread_mutex_init when initializing a mutex on runtime
-    pthread_mutex_t mut;
-    pthread_mutex_init(&mut, NULL);
-    pthread_mutex_lock(&mut);
+    struct memPartageHeader *entete = (struct memPartageHeader *)ptr;
 
-    headerInfos->mutex = mut;
-    zone->fd = shm;
-    zone->tailleDonnees = taille - sizeof(struct memPartageHeader);
-    zone->header = headerInfos;
-    zone->data = ptr + sizeof(struct memPartageHeader);
+    pthread_mutexattr_t mutex_attr;
+    pthread_mutexattr_init(&mutex_attr);
 
+    pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
+
+    pthread_mutex_init(&entete->mutex, &mutex_attr);
+
+    entete->largeur = headerInfos->largeur;
+    entete->hauteur = headerInfos->hauteur;
+    entete->canaux = headerInfos->canaux;
+    entete->fps = headerInfos->fps;
+
+    zone->data = (((unsigned char *)ptr) + sizeof(struct memPartageHeader));
+    zone->header = entete;
+    zone->tailleDonnees = taille;
     zone->header->frameReader = 0;
     zone->header->frameWriter = 1;
-    zone->copieCompteur = zone->header->frameWriter;
+    zone->copieCompteur = 0;
+
+    pthread_mutex_lock(&entete->mutex);
 
     return 0;
 }
@@ -73,24 +79,24 @@ int initMemoirePartageeEcrivain(const char *identifiant, struct memPartage *zone
 int attenteLecteur(struct memPartage *zone)
 {
     while (zone->copieCompteur == zone->header->frameWriter)
-    {
-        usleep(5);
-    }
-    pthread_mutex_trylock(&zone->header->mutex);
+        ;
+    pthread_mutex_lock(&zone->header->mutex);
     return 0;
 }
 
 int attenteLecteurAsync(struct memPartage *zone)
 {
-    return 0;
+    if (zone->copieCompteur != zone->header->frameWriter)
+    {
+        return 1;
+    }
+    else
+        return 0;
 }
 
 int attenteEcrivain(struct memPartage *zone)
 {
-    while (zone->copieCompteur == zone->header->frameReader)
-    {
-        usleep(5);
-    }
-    pthread_mutex_trylock(&zone->header->mutex);
+    while (zone->copieCompteur == zone->header->frameReader){usleep(5);}
+    while(pthread_mutex_trylock(&zone->header->mutex) != 0);
     return 0;
 }

@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
     struct memPartage sharedMemoryZone;
     struct memPartageHeader sharedMemoryHeader;
     size_t sizeOfImages = videoInfo.canaux * videoInfo.largeur * videoInfo.hauteur;
-    size_t sizeOfSharedMemory = sizeof(struct memPartageHeader) + sizeOfImages;
+    size_t sizeOfSharedMemory = sizeOfImages;
     sharedMemoryHeader.hauteur = videoInfo.hauteur;
     sharedMemoryHeader.largeur = videoInfo.largeur;
     sharedMemoryHeader.canaux = videoInfo.canaux;
@@ -247,14 +247,14 @@ int main(int argc, char *argv[])
     // decodage image et ecriture dans memoire partage
     while (1)
     {
-        if (sharedMemoryHeader.frameWriter >= numberOfFramesInVideo - 1)
+        if (sharedMemoryZone.header->frameWriter >= numberOfFramesInVideo - 1)
         {
             // Atteint la fin de la video, on recommence au premier frame
-            sharedMemoryHeader.frameWriter = 1;
+            sharedMemoryZone.header->frameWriter = 1;
         }
         // Get the current frame pointer and size
-        uintptr_t currentFramePointer = framePointerArray[sharedMemoryHeader.frameWriter - 1];
-        uint32_t currentFrameSize = frameSizeArray[sharedMemoryHeader.frameWriter - 1];
+        uintptr_t currentFramePointer = framePointerArray[sharedMemoryZone.header->frameWriter - 1];
+        uint32_t currentFrameSize = frameSizeArray[sharedMemoryZone.header->frameWriter - 1];
 
         // Write frame data to shared memory zone
         int actualComp;
@@ -263,34 +263,16 @@ int main(int argc, char *argv[])
 
         unsigned char *dataToWrite = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
 
-        // enregistreImage(dataToWrite, actualHeight, actualWidth, actualComp, "Test_Image.ppm");
-
-        // return 0;
-
-        printf("First byte of data before writing: ");
-        printf("%d", sharedMemoryZone.data[0]);
-        printf("\n");
-
         memcpy(sharedMemoryZone.data, dataToWrite, sizeOfImages);
-
-        printf("Decoder wrote frame of size: ");
-        printf("%d", sizeOfImages);
-        printf(" At location: ");
-        printf("%x", sharedMemoryZone.data);
-        printf("\n");
-
-        printf("First byte of data after writing: ");
-        printf("%d", sharedMemoryZone.data[0]);
-        printf("\n");
 
         tempsreel_free(dataToWrite);
 
-        sharedMemoryZone.copieCompteur = sharedMemoryHeader.frameReader;
+        sharedMemoryZone.copieCompteur = sharedMemoryZone.header->frameReader;
 
         pthread_mutex_unlock(&sharedMemoryZone.header->mutex);
 
         attenteEcrivain(&sharedMemoryZone);
-        sharedMemoryHeader.frameWriter++;
+        sharedMemoryZone.header->frameWriter++;
     }
     return 0;
 }
