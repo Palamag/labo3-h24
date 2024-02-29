@@ -105,9 +105,14 @@ int main(int argc, char* argv[]){
     }
 
     printf("Initialisation convertisseur, entree=%s, sortie=%s, mode d'ordonnancement=%i\n", entree, sortie, modeOrdonnanceur);
-    
+
+    // La
+
     struct memPartage *mem_partage_in;
+    struct memPartage *mem_partage_out;
     mem_partage_in = (struct memPartage*)malloc(sizeof(struct memPartage));
+    mem_partage_out = (struct memPartage*)malloc(sizeof(struct memPartage));
+
 
     int init_mem_in = initMemoirePartageeLecteur((const char*)entree, mem_partage_in);
     if (init_mem_in < 0){
@@ -115,42 +120,37 @@ int main(int argc, char* argv[]){
         return -1;
     }
 
-    struct memPartage *mem_partage_out;
-    struct memPartageHeader *mem_partage_header;
+    while (mem_partage_in->header->frameWriter == 0);
 
-    mem_partage_out = (struct memPartage*)malloc(sizeof(struct memPartage));
+    uint32_t hauteur = mem_partage_in->header->hauteur;
+    uint32_t largeur = mem_partage_in->header->largeur;
+    uint32_t canaux = mem_partage_in->header->canaux;
+    size_t tailleDonnees = hauteur*largeur*canaux;
 
-    size_t video_out_size = (size_t)(sizeof(struct memPartageHeader) + mem_partage_in->header->canaux * mem_partage_in->header->hauteur * mem_partage_in->header->largeur);
-
-    int init_mem_out = initMemoirePartageeEcrivain((const char*)sortie, mem_partage_out, video_out_size, mem_partage_header);
+    int init_mem_out = initMemoirePartageeEcrivain(sortie, mem_partage_out, tailleDonnees, mem_partage_in->header);
     if (init_mem_out < 0){
         printf("Erreur lors de l'initialisation de la memoire");
         return -1;
     }
 
-    mem_partage_header->hauteur = mem_partage_in->header->hauteur;
-    mem_partage_header->largeur =  mem_partage_in->header->largeur;
-    mem_partage_header->canaux =  mem_partage_in->header->canaux;
-    mem_partage_header->fps =  mem_partage_in->header->fps;
+    mem_partage_out->header->canaux = 1;
 
-    while(true){
+    while(1){
 
-        pthread_mutex_lock(&mem_partage_in->header->mutex);
         mem_partage_in->header->frameReader++;
-
-        unsigned char* current_data = mem_partage_in->data;
+        unsigned char *current_data = mem_partage_in->data;
         mem_partage_in->copieCompteur = mem_partage_in->header->frameWriter;
+        pthread_mutex_unlock(&mem_partage_in->header->mutex);
+        attenteLecteur(mem_partage_in);
 
-        attenteLecteur(mem_partage_in); 
-
-        convertToGray(current_data, mem_partage_in->header->largeur, mem_partage_in->header->hauteur, mem_partage_in->header->canaux, mem_partage_out->data);
-
-        mem_partage_out->copieCompteur = mem_partage_header->frameReader;
-        pthread_mutex_unlock(&mem_partage_header->mutex);
-
+        convertToGray(current_data, hauteur, largeur, canaux, mem_partage_out->data);
+        mem_partage_out->copieCompteur = mem_partage_out->header->frameReader;
+        pthread_mutex_unlock(&mem_partage_out->header->mutex);
+        
         attenteEcrivain(mem_partage_out);
 
-        mem_partage_header->frameWriter++;
+        mem_partage_out->header->frameWriter++;
+        
     }
 
     return 0;
