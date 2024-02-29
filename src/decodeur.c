@@ -73,72 +73,87 @@ int main(int argc, char *argv[])
     unsigned int runtime, deadline, period;
     int deadlineParamIndex = 0;
     char *splitString;
-    while ((c = getopt(argc, argv, "s:d:")) != -1)
+
+    int nb_arg = argc - optind;
+    if (strcmp(argv[1], "--debug") == 0)
     {
-        switch (c)
+        // Mode debug, vous pouvez changer ces valeurs pour ce qui convient dans vos tests
+        printf("Mode debug selectionne pour le decodeur\n");
+        nb_arg = 2;
+        entree = "/home/pi/projects/laboratoire3/240p/01_ToS.ulv";
+        sortie = "/mem1";
+    }
+    else
+    {
+
+        while ((c = getopt(argc, argv, "s:d:")) != -1)
         {
-        case 's':
-            // On selectionne le mode d'ordonnancement
-            if (strcmp(optarg, "NORT") == 0)
+            switch (c)
             {
-                modeOrdonnanceur = ORDONNANCEMENT_NORT;
-            }
-            else if (strcmp(optarg, "RR") == 0)
-            {
-                modeOrdonnanceur = ORDONNANCEMENT_RR;
-            }
-            else if (strcmp(optarg, "FIFO") == 0)
-            {
-                modeOrdonnanceur = ORDONNANCEMENT_FIFO;
-            }
-            else if (strcmp(optarg, "DEADLINE") == 0)
-            {
-                modeOrdonnanceur = ORDONNANCEMENT_DEADLINE;
-            }
-            else
-            {
-                modeOrdonnanceur = ORDONNANCEMENT_NORT;
-                printf("Mode d'ordonnancement %s non valide, defaut sur NORT\n", optarg);
-            }
-            break;
-        case 'd':
-            // Dans le cas DEADLINE, on peut recevoir des parametres
-            // Si un autre mode d'ordonnacement est selectionne, ces
-            // parametres peuvent simplement etre ignores
-            splitString = strtok(optarg, ",");
-            while (splitString != NULL)
-            {
-                if (deadlineParamIndex == 0)
+            case 's':
+                // On selectionne le mode d'ordonnancement
+                if (strcmp(optarg, "NORT") == 0)
                 {
-                    // Runtime
-                    runtime = atoi(splitString);
+                    modeOrdonnanceur = ORDONNANCEMENT_NORT;
                 }
-                else if (deadlineParamIndex == 1)
+                else if (strcmp(optarg, "RR") == 0)
                 {
-                    deadline = atoi(splitString);
+                    modeOrdonnanceur = ORDONNANCEMENT_RR;
+                }
+                else if (strcmp(optarg, "FIFO") == 0)
+                {
+                    modeOrdonnanceur = ORDONNANCEMENT_FIFO;
+                }
+                else if (strcmp(optarg, "DEADLINE") == 0)
+                {
+                    modeOrdonnanceur = ORDONNANCEMENT_DEADLINE;
                 }
                 else
                 {
-                    period = atoi(splitString);
-                    break;
+                    modeOrdonnanceur = ORDONNANCEMENT_NORT;
+                    printf("Mode d'ordonnancement %s non valide, defaut sur NORT\n", optarg);
                 }
-                deadlineParamIndex++;
-                splitString = strtok(NULL, ",");
+                break;
+            case 'd':
+                // Dans le cas DEADLINE, on peut recevoir des parametres
+                // Si un autre mode d'ordonnacement est selectionne, ces
+                // parametres peuvent simplement etre ignores
+                splitString = strtok(optarg, ",");
+                while (splitString != NULL)
+                {
+                    if (deadlineParamIndex == 0)
+                    {
+                        // Runtime
+                        runtime = atoi(splitString);
+                    }
+                    else if (deadlineParamIndex == 1)
+                    {
+                        deadline = atoi(splitString);
+                    }
+                    else
+                    {
+                        period = atoi(splitString);
+                        break;
+                    }
+                    deadlineParamIndex++;
+                    splitString = strtok(NULL, ",");
+                }
+                break;
+            default:
+                continue;
             }
-            break;
-        default:
-            continue;
         }
+
+        if (nb_arg < 2)
+        {
+            printf("Arguments manquants (fichier_entree flux_sortie)\n");
+            return -1;
+        }
+
+        entree = argv[optind];
+        sortie = argv[optind + 1];
     }
 
-    if (argc - optind < 2)
-    {
-        printf("Arguments manquants (fichier_entree flux_sortie)\n");
-        return -1;
-    }
-
-    entree = argv[optind];
-    sortie = argv[optind + 1];
     printf("Initialisation decodeur, entree=%s, sortie=%s, mode d'ordonnancement=%i\n", entree, sortie, modeOrdonnanceur);
 
     int videoFileDescriptor = open(entree, O_RDONLY);
@@ -217,17 +232,17 @@ int main(int argc, char *argv[])
     sharedMemoryHeader.canaux = videoInfo.canaux;
     sharedMemoryHeader.fps = videoInfo.fps;
 
-    //Init pool de memoire
+    if (initMemoirePartageeEcrivain(sortie, &sharedMemoryZone, sizeOfSharedMemory, &sharedMemoryHeader) < 0)
+    {
+        return -1;
+    }
+
+    // Init pool de memoire
     /*if (prepareMemoire(sizeOfImages, sizeOfImages) < 0)
     {
         printf("Echec preparation memoire par decodeur\n");
         return -1;
     }*/
-
-    if (initMemoirePartageeEcrivain(sortie, &sharedMemoryZone, sizeOfSharedMemory, &sharedMemoryHeader) < 0)
-    {
-        return -1;
-    }
 
     // decodage image et ecriture dans memoire partage
     while (1)
@@ -248,10 +263,30 @@ int main(int argc, char *argv[])
 
         unsigned char *dataToWrite = jpgd::decompress_jpeg_image_from_memory((const unsigned char *)currentFramePointer, currentFrameSize, &actualWidth, &actualHeight, &actualComp, 3, 0);
 
+        // enregistreImage(dataToWrite, actualHeight, actualWidth, actualComp, "Test_Image.ppm");
+
+        // return 0;
+
+        printf("First byte of data before writing: ");
+        printf("%d", sharedMemoryZone.data[0]);
+        printf("\n");
+
         memcpy(sharedMemoryZone.data, dataToWrite, sizeOfImages);
+
+        printf("Decoder wrote frame of size: ");
+        printf("%d", sizeOfImages);
+        printf(" At location: ");
+        printf("%x", sharedMemoryZone.data);
+        printf("\n");
+
+        printf("First byte of data after writing: ");
+        printf("%d", sharedMemoryZone.data[0]);
+        printf("\n");
+
         tempsreel_free(dataToWrite);
 
         sharedMemoryZone.copieCompteur = sharedMemoryHeader.frameReader;
+
         pthread_mutex_unlock(&sharedMemoryZone.header->mutex);
 
         attenteEcrivain(&sharedMemoryZone);
