@@ -78,9 +78,8 @@ int initMemoirePartageeEcrivain(const char *identifiant, struct memPartage *zone
 
 int attenteLecteur(struct memPartage *zone)
 {
-    while (zone->copieCompteur == zone->header->frameWriter)
-        ;
-    pthread_mutex_lock(&zone->header->mutex);
+    while (zone->copieCompteur == zone->header->frameWriter){usleep(5);}
+    while(pthread_mutex_trylock(&zone->header->mutex) != 0);
     return 0;
 }
 
