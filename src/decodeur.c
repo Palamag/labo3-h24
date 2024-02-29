@@ -163,7 +163,6 @@ int main(int argc, char *argv[])
     // Obtient hauteur, largeur, nb de canaux et images par seconde
     struct videoInfos videoInfo;
     memcpy(&videoInfo, &videoFilePointer[4], sizeof(struct videoInfos));
-    size_t sizeOfImages = videoInfo.canaux + videoInfo.largeur + videoInfo.hauteur;
 
     // Creation d'une array de pointer vers chaque frame, pour obtenir facilement chaque frame lors de l'ecriture
     // Commence par obtenir le nombre de frames
@@ -185,7 +184,6 @@ int main(int argc, char *argv[])
         }
     }
     // Cree l'array et recommence la boucle pour sauvegarder chaque pointer de frame dans l'array, on sauvegarde aussi la taille de chaque frame
-    // On trouve aussi l'image la plus grosse
     uintptr_t *framePointerArray = (uintptr_t *)malloc(sizeof(uintptr_t) * numberOfFramesInVideo);
     uint32_t *frameSizeArray = (uint32_t *)malloc(sizeof(unsigned int) * numberOfFramesInVideo);
     numberOfBytesRead = 0;
@@ -209,20 +207,22 @@ int main(int argc, char *argv[])
         }
     }
 
-    /*if (prepareMemoire(sizeOfImages, sizeOfImages) < 0)
-    {
-        printf("Echec preparation memoire par decodeur\n");
-        return -1;
-    }*/
-
     // Init espace memoire partage
     struct memPartage sharedMemoryZone;
     struct memPartageHeader sharedMemoryHeader;
+    size_t sizeOfImages = videoInfo.canaux * videoInfo.largeur * videoInfo.hauteur;
     size_t sizeOfSharedMemory = sizeof(struct memPartageHeader) + sizeOfImages;
     sharedMemoryHeader.hauteur = videoInfo.hauteur;
     sharedMemoryHeader.largeur = videoInfo.largeur;
     sharedMemoryHeader.canaux = videoInfo.canaux;
     sharedMemoryHeader.fps = videoInfo.fps;
+
+    //Init pool de memoire
+    /*if (prepareMemoire(sizeOfImages, sizeOfImages) < 0)
+    {
+        printf("Echec preparation memoire par decodeur\n");
+        return -1;
+    }*/
 
     if (initMemoirePartageeEcrivain(sortie, &sharedMemoryZone, sizeOfSharedMemory, &sharedMemoryHeader) < 0)
     {
