@@ -417,9 +417,9 @@ int main(int argc, char* argv[])
 			{
 				if (get_time() - lastFrameTime[i] >= (1/memHeaders[i]->fps))
 				{
-					//if (partages[i].copieCompteur != memHeaders[i]->frameReader)
-					//{
-						if (pthread_mutex_trylock(&memHeaders[i]->mutex) >= 0) {
+					if (partages[i].copieCompteur != memHeaders[i]->frameWriter)
+					{
+						if (pthread_mutex_trylock(&memHeaders[i]->mutex) == 0) {
 							memHeaders[i]->frameReader++;
 							ecrireImage(i,
 										nbrActifs,
@@ -435,10 +435,10 @@ int main(int argc, char* argv[])
 										memHeaders[i]->canaux
 							);
 							lastFrameTime[i] = get_time();
-							partages[i].copieCompteur = memHeaders[i]->frameReader;
+							partages[i].copieCompteur = memHeaders[i]->frameWriter;
 							pthread_mutex_unlock(&memHeaders[i]->mutex);
 						}
-					//}
+					}
 				}
 			}
 			
